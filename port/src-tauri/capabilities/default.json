@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Core event access for the main window; file access goes through our own commands.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

@@ -85,7 +85,7 @@ Work happens on the `dev` branch. Every push to `dev` that touches more than doc
 
 - The base version is in `.github/dev-base-version` (`0.0.1`). Change it to start a new series (`0.0.2-dev1`).
 - macOS: ad hoc signed, not notarized `Shark-<version>.dmg` plus checksum, built with `scripts/package.sh`. No secrets are needed.
-- Windows and Linux: built from `port/` once the port exists; until then those jobs skip. See [PORTING.md](PORTING.md).
+- Windows and Linux: the Tauri port in `port/` is tested and built into `Shark-<version>-windows-x64-setup.exe`, `Shark-<version>-linux-amd64.deb` and `Shark-<version>-linux-x86_64.AppImage`, unsigned, each with a checksum file. See [PORTING.md](PORTING.md).
 - Dev tags are created with the workflow token, and `release.yml` ignores `v*-dev*` tags, so no Developer ID signing, notarization, App Store upload, or Homebrew update happens for dev builds.
 - Run it by hand from **Actions › Dev Release › Run workflow** on `dev`, or `gh workflow run dev-release.yml --ref dev`. Add `[skip ci]` to a commit message to skip a push.
 - Merge `dev` into `main` and tag as described above for real releases.

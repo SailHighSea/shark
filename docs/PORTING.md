@@ -1,6 +1,6 @@
 # Porting Shark to Windows and Linux
 
-Status: **plan only.** Nothing here is implemented. Shark today is a macOS 14+ app written in Swift 6 with SwiftUI and AppKit bridges, so the existing source cannot be compiled for Windows or Linux. The dev release workflow already has Windows and Linux jobs; they skip until `port/` exists (see [Release pipeline](#release-pipeline)).
+Status: **phases 1 to 3 are implemented in `port/`** (skeleton, browse, operate). Phases 4 to 7 are still plans. Shark itself is a macOS 14+ app written in Swift 6 with SwiftUI and AppKit bridges, so its source cannot be compiled for Windows or Linux; the port in `port/` re-implements it. See [`port/README.md`](../port/README.md) to build and run it.
 
 ## Why a rewrite of the UI is unavoidable
 
@@ -21,13 +21,27 @@ Status: **plan only.** Nothing here is implemented. Shark today is a macOS 14+ a
 
 The Swift app stays the reference for behaviour. The port re-implements it; it does not share code.
 
+## Layout of `port/`
+
+- `core/`: the `shark-core` Rust crate. Listing, sorting, places, copy / move / trash / rename / duplicate, collision handling, undo and folder sizes. No UI types, fully unit tested.
+- `src-tauri/`: the Tauri shell. Thin commands over `shark-core`, file watching (`notify`) and opening files with the system handler.
+- `src/`: the TypeScript UI (no framework). `logic.ts` holds the pure, tested helpers; `mock.ts` is an in-memory file system used when the page runs outside Tauri, for browser testing.
+
+## Known gaps in phases 1 to 3
+
+- **Clipboard is in-app only.** Cut, copy and paste work between Shark tabs and panes, not with Explorer or other file managers. Dragging files in from or out to other apps is not supported.
+- **Favorites** are not implemented yet; the sidebar shows places and drives.
+- **No rubber-band selection** and no virtualised list; very large folders render every row.
+- **Move vs copy on drag** is Move by default and Ctrl for Copy, on every drive.
+- **Windows and Linux have not been run on real machines by the author of this change.** The Linux build compiles and the UI is tested against the mock file system in a browser; the Windows build is covered only by CI.
+
 ## Phases
 
 Each phase ships as a dev pre-release so it can be tried on real machines.
 
-1. **Skeleton.** `port/` Tauri app that opens, lists a folder and navigates. CI builds and tests on both OSes. This switches the Windows and Linux release jobs on.
-2. **Browse.** List and icon views, columns, sort, tabs, split panes, path bar, sidebar (places, favorites, drives), type-to-select, Windows-style range selection, session restore.
-3. **Operate.** Copy, move, trash, rename, duplicate, undo, collision dialog, drag and drop, clipboard (including cut and paste), folder sizes, live updates from file watching.
+1. **Skeleton. Done.** Tauri 2 app in `port/` that opens, lists a folder and navigates. CI builds and tests on Linux and Windows, and the dev release publishes `.deb`, `.AppImage` and NSIS installers.
+2. **Browse. Done** (except favorites). List and icon views, sortable columns, tabs, split panes, editable path bar with breadcrumbs, sidebar with places and drives, filter, hidden-file toggle, type-to-select, Windows-style range selection, session restore.
+3. **Operate. Done.** Copy, move, trash, rename (inline), new folder, duplicate, undo, a Replace / Keep Both / Skip / Stop collision dialog with Apply to all, drag and drop (Ctrl copies), cut / copy / paste, folder sizes, live refresh from file watching.
 4. **Preview and inspect.** Thumbnails, preview pane, hover preview, inspector, photo viewer, Open With.
 5. **Power features.** Integrated terminal drawer (ConPTY on Windows, PTY on Linux), command palette, filter and search, settings, mouse bindings, localization (8 languages from the existing `.lproj` strings).
 6. **Platform polish.** Native context menus and shortcut conventions (Ctrl instead of Command), High DPI, dark mode, Windows Explorer and Linux file-manager integration (default folder handler), auto update check.
@@ -60,10 +74,4 @@ macOS-only items stay out of the Windows and Linux builds and are not claimed on
 
 ## Release pipeline
 
-[`dev-release.yml`](../.github/workflows/dev-release.yml) builds every platform and publishes a GitHub pre-release for each push to `dev`. See [RELEASING.md](RELEASING.md#dev-pre-releases). The Windows and Linux jobs run when `port/src-tauri/tauri.conf.json` exists and expect:
-
-- `port/package.json` and `port/package-lock.json`
-- `port/src-tauri/` with the Tauri config and Rust tests (`cargo test`)
-- bundle names that the workflow collects: `.deb`, `.AppImage` (Linux) and an NSIS `-setup.exe` (Windows)
-
-If phase 1 uses another layout, update the job paths in the workflow with it.
+[`dev-release.yml`](../.github/workflows/dev-release.yml) builds every platform and publishes a GitHub pre-release for each push to `dev`. See [RELEASING.md](RELEASING.md#dev-pre-releases). The Windows and Linux jobs run the tests (`npm run typecheck`, `npm test`, `cargo test` on `core/`), build with `tauri build`, and publish a `.deb` and `.AppImage` (Linux) and an NSIS `-setup.exe` (Windows). [`port-ci.yml`](../.github/workflows/port-ci.yml) runs the same tests on every push or pull request that touches `port/`. The jobs skip themselves if `port/src-tauri/tauri.conf.json` is ever removed.

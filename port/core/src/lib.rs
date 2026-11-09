@@ -8,7 +8,7 @@ pub mod undo;
 
 pub use entry::{list_dir, sort_entries, Entry, Kind, SortKey};
 pub use ops::{
-    check_conflicts, create_folder, duplicate, folder_size, rename, transfer, trash_paths,
+    check_conflicts, create_folder, disk_free, duplicate, folder_size, rename, transfer, trash_paths,
     Resolution, TransferKind,
 };
 pub use places::{places, Place};

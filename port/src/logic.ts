@@ -48,26 +48,51 @@ export function joinPath(dir: string, name: string): string {
   return dir.endsWith(sep) ? dir + name : dir + sep + name;
 }
 
+/** Finder-style sizes: "174 bytes", "15 KB", "1.2 MB", "98.71 GB". */
 export function formatSize(bytes: number): string {
-  if (bytes < 1000) return `${bytes} B`;
-  const units = ["KB", "MB", "GB", "TB"];
-  let n = bytes;
-  let i = -1;
-  do {
-    n /= 1000;
-    i++;
-  } while (n >= 1000 && i < units.length - 1);
-  return `${n >= 100 ? n.toFixed(0) : n.toFixed(1)} ${units[i]}`;
+  if (bytes === 0) return "Zero KB";
+  if (bytes === 1) return "1 byte";
+  if (bytes < 1000) return `${bytes} bytes`;
+  if (bytes < 1e6) return `${Math.round(bytes / 1e3)} KB`;
+  if (bytes < 1e9) return `${(bytes / 1e6).toFixed(1)} MB`;
+  if (bytes < 1e12) return `${(bytes / 1e9).toFixed(2)} GB`;
+  return `${(bytes / 1e12).toFixed(2)} TB`;
 }
 
+/** "20 Oct 2026 at 11:32 PM" in the user's locale. */
 export function formatDate(ms: number | null): string {
   if (ms === null) return "";
-  return new Date(ms).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  const d = new Date(ms);
+  const day = d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return `${day} at ${time}`;
 }
+
+const KINDS: Record<string, string> = {
+  json: "JSON Document", md: "Markdown Document", txt: "Plain Text Document", pdf: "PDF document",
+  png: "PNG image", jpg: "JPEG image", jpeg: "JPEG image", gif: "GIF image", webp: "WebP image", svg: "SVG image",
+  zip: "ZIP archive", gz: "GZip archive", tar: "TAR archive", "7z": "7-Zip archive", rar: "RAR archive",
+  mp3: "MP3 audio", wav: "WAV audio", flac: "FLAC audio", mp4: "MPEG-4 movie", mkv: "Matroska video",
+  html: "HTML document", css: "CSS style sheet", js: "JavaScript source", ts: "TypeScript source",
+  rs: "Rust source", py: "Python source", swift: "Swift source", sh: "Shell script",
+  doc: "Word document", docx: "Word document", xls: "Excel spreadsheet", xlsx: "Excel spreadsheet",
+  csv: "CSV document", ppt: "PowerPoint presentation", pptx: "PowerPoint presentation",
+  exe: "Application", msi: "Windows Installer", deb: "Debian package", appimage: "AppImage application",
+};
 
 export function kindLabel(e: Entry): string {
   if (e.kind === "folder") return "Folder";
-  return e.ext ? `${e.ext.toUpperCase()} file` : "File";
+  return KINDS[e.ext] ?? (e.ext ? `${e.ext.toUpperCase()} file` : "Document");
+}
+
+/** The status bar: "10 items • 1 selected (Zero KB) • 98.71 GB available". */
+export function statusLine(total: number, selected: number, selectedBytes: number | null, free: number | null): string {
+  const parts = [`${total} item${total === 1 ? "" : "s"}`];
+  if (selected > 0) {
+    parts.push(`${selected} selected (${selectedBytes === null ? "calculating…" : formatSize(selectedBytes)})`);
+  }
+  if (free !== null) parts.push(`${formatSize(free)} available`);
+  return parts.join(" • ");
 }
 
 /** Back/forward history for one pane. */

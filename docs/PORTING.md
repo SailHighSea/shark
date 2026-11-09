@@ -27,10 +27,22 @@ The Swift app stays the reference for behaviour. The port re-implements it; it d
 - `src-tauri/`: the Tauri shell. Thin commands over `shark-core`, file watching (`notify`) and opening files with the system handler.
 - `src/`: the TypeScript UI (no framework). `logic.ts` holds the pure, tested helpers; `mock.ts` is an in-memory file system used when the page runs outside Tauri, for browser testing.
 
+## Design parity with the macOS app
+
+The UI follows [`DESIGN.md`](../DESIGN.md) and the screenshots in `docs/screenshots`. Dark-mode colors in `port/src/style.css` are sampled from those screenshots; light-mode colors are standard macOS equivalents, since no light screenshot exists.
+
+Matched: one toolbar with Navigation and Location capsules and 9 pt captions, a full-width tab strip (34 pt, equal-width capsule tabs with centered titles, circular add button, double-click empty strip for a new tab, wheel to switch), an inset 20 pt sidebar with collapsible Favorites and Locations sections (32 pt rows), striped list rows (26 pt) with Name, Size, Date Modified and Kind columns, blue full-row selection, split-pane headers ("Left Pane" and "Right Pane" with a close button), a 22 pt status bar ("10 items • 1 selected (Zero KB) • 98.71 GB available"), icon zoom (48 to 192 pt with Ctrl+plus, Ctrl+minus, Ctrl+0, Ctrl+wheel and a slider), Finder-style size and kind wording, and double-click on empty space to go up.
+
+Not matched, on purpose or for now:
+- **No Liquid Glass, vibrancy or wallpaper bleed-through.** A webview can't blur the desktop behind the window, so surfaces are flat colors.
+- **The window uses the native title bar** of each OS rather than a unified toolbar with traffic lights, so Windows and Linux keep their own window controls.
+- **Not ported yet:** Favorites you add yourself, Recents, Tags, Miller Columns and Gallery views, Share, Terminal, Action menu, pinned and tinted tabs, tab groups, the inspector, the command palette and hover previews. Their buttons are left out rather than shown disabled.
+- **Icons** are simple outline glyphs in lists and badge-style file icons in the icon view, not macOS system icons or image thumbnails (phase 4).
+
 ## Known gaps in phases 1 to 3
 
 - **Clipboard is in-app only.** Cut, copy and paste work between Shark tabs and panes, not with Explorer or other file managers. Dragging files in from or out to other apps is not supported.
-- **Favorites** are not implemented yet; the sidebar shows places and drives.
+- **User-added Favorites** are not implemented; Favorites lists the standard folders that exist, and Locations lists home and drives.
 - **No rubber-band selection** and no virtualised list; very large folders render every row.
 - **Move vs copy on drag** is Move by default and Ctrl for Copy, on every drive.
 - **Windows and Linux have not been run on real machines by the author of this change.** The Linux build compiles and the UI is tested against the mock file system in a browser; the Windows build is covered only by CI.

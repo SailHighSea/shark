@@ -1,8 +1,8 @@
 import { api, onDirChanged, type Place, type Resolution, type SortKey } from "./api";
-import { iconFor, PLACE_ICONS } from "./icons";
+import { iconFor, listIcon, placeIcon, ui } from "./icons";
 import {
   baseName, breadcrumbs, formatDate, formatSize, History, kindLabel, navigate, rangeBetween,
-  stemLength, typeSelect, type Entry, type NavKey,
+  statusLine, stemLength, typeSelect, type Entry, type NavKey,
 } from "./logic";
 
 interface Pane {
@@ -24,9 +24,11 @@ interface Settings {
   sortKey: SortKey;
   ascending: boolean;
   showHidden: boolean;
+  zoom: number;
+  collapsed: string[];
 }
 
-const settings: Settings = { view: "list", sortKey: "name", ascending: true, showHidden: false };
+const settings: Settings = { view: "list", sortKey: "name", ascending: true, showHidden: false, zoom: 72, collapsed: [] };
 let tabs: Tab[] = [];
 let activeTab = 0;
 let places: Place[] = [];
@@ -36,6 +38,7 @@ let canUndo = false;
 let renaming = false;
 let nextTabId = 1;
 const folderSizes = new Map<string, { bytes: number; items: number }>();
+const freeSpace = new Map<string, number | null>();
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -372,53 +375,76 @@ function toast(message: string, withUndo = false) {
   setTimeout(() => el.remove(), withUndo ? 7000 : 4500);
 }
 
-function renderTabs() {
-  $("tabbar").innerHTML =
-    tabs
-      .map(
-        (t, i) =>
-          `<div class="tab${i === activeTab ? " active" : ""}" data-tab="${i}" title="${esc(pane(t).history.current)}"><span>${esc(
-            baseName(pane(t).history.current),
-          )}</span>${tabs.length > 1 ? `<button class="x" data-close="${i}" aria-label="Close tab">×</button>` : ""}</div>`,
-      )
-      .join("") + `<button id="new-tab" aria-label="New tab" title="New tab (Ctrl+T)">+</button>`;
+function tabTitle(t: Tab): string {
+  return t.panes.map((p) => baseName(p.history.current)).join(" | ");
 }
 
+function renderTabs() {
+  $("tabbar").innerHTML =
+    `<div class="tabs">${tabs
+      .map(
+        (t, i) =>
+          `<div class="tab${i === activeTab ? " active" : ""}" data-tab="${i}" title="${esc(pane(t).history.current)}"><span>${esc(tabTitle(t))}</span>${
+            tabs.length > 1 ? `<button class="x" data-close="${i}" aria-label="Close tab">${ui("close", "xi")}</button>` : ""
+          }</div>`,
+      )
+      .join("")}</div><button id="new-tab" aria-label="New tab" title="New tab (Ctrl+T)">+</button>`;
+}
+
+const searchEl = document.createElement("label");
+searchEl.className = "capsule search";
+searchEl.innerHTML = `${ui("search", "sico")}<input class="search-input" placeholder="Search" aria-label="Filter this folder" spellcheck="false">`;
+
 function renderToolbar() {
-  const b = (id: string, label: string, title: string, on = false, disabled = false) =>
-    `<button id="${id}" class="${on ? "on" : ""}" title="${title}" ${disabled ? "disabled" : ""}>${label}</button>`;
-  $("toolbar").innerHTML = `
-    ${b("tb-undo", "↶ Undo", "Undo (Ctrl+Z)", false, !canUndo)}
-    ${b("tb-folder", "New Folder", "New folder (Ctrl+Shift+N)")}
-    <span class="spacer"></span>
-    <label class="sort">Sort <select id="tb-sort">${(["name", "modified", "size", "kind"] as SortKey[])
-      .map((k) => `<option value="${k}"${settings.sortKey === k ? " selected" : ""}>${k[0].toUpperCase() + k.slice(1)}</option>`)
-      .join("")}</select></label>
-    ${b("tb-order", settings.ascending ? "↑" : "↓", "Reverse sort order")}
-    ${b("tb-list", "List", "List view", settings.view === "list")}
-    ${b("tb-icons", "Icons", "Icon view", settings.view === "icons")}
-    ${b("tb-hidden", "Hidden", "Show hidden files (Ctrl+H)", settings.showHidden)}
-    ${b("tb-split", "Split", "Two panes (Ctrl+\\)", tab().panes.length > 1)}`;
+  if (document.querySelector(".pathinput")) return; // don't wipe a path being typed
+  const p = pane();
+  const h = p.history;
+  const btn = (id: string, icon: Parameters<typeof ui>[0], title: string, opts: { on?: boolean; off?: boolean } = {}) =>
+    `<button id="${id}" class="${opts.on ? "on" : ""}" title="${title}" aria-label="${title}" ${opts.off ? "disabled" : ""}>${ui(icon)}</button>`;
+  const group = (cap: string, body: string, cls = "") => `<div class="tbg ${cls}">${body}<span class="cap">${cap}</span></div>`;
+  $("toolbar").innerHTML =
+    group("Navigation", `<div class="capsule">${btn("nav-back", "back", "Back (Alt+←)", { off: !h.canBack() })}${btn("nav-fwd", "fwd", "Forward (Alt+→)", { off: !h.canForward() })}${btn("nav-up", "up", "Up (Alt+↑)")}</div>`) +
+    group("Location", `<nav id="crumbs" class="capsule crumbs" title="Click to type a path (Ctrl+L)">${crumbsHtml(h.current)}</nav>`, "grow") +
+    group(
+      "Sort",
+      `<div class="capsule"><select id="tb-sort" aria-label="Sort by">${(["name", "modified", "size", "kind"] as SortKey[])
+        .map((k) => `<option value="${k}"${settings.sortKey === k ? " selected" : ""}>${k === "modified" ? "Date Modified" : k[0].toUpperCase() + k.slice(1)}</option>`)
+        .join("")}</select>${btn("tb-order", "sort", settings.ascending ? "Ascending (click to reverse)" : "Descending (click to reverse)")}</div>`,
+    ) +
+    group("View", `<div class="capsule">${btn("tb-list", "list", "List view", { on: settings.view === "list" })}${btn("tb-icons", "grid", "Icon view", { on: settings.view === "icons" })}</div>`) +
+    group("Hidden", `<div class="capsule">${btn("tb-hidden", "eye", "Show hidden files (Ctrl+H)", { on: settings.showHidden })}</div>`) +
+    group("New Folder", `<div class="capsule">${btn("tb-folder", "newfolder", "New folder (Ctrl+Shift+N)")}</div>`) +
+    group("Undo", `<div class="capsule">${btn("tb-undo", "undo", "Undo (Ctrl+Z)", { off: !canUndo })}</div>`) +
+    group("Split", `<div class="capsule">${btn("tb-split", "split", "Two panes (Ctrl+\\)", { on: tab().panes.length > 1 })}</div>`) +
+    group("Search", `<span id="search-slot"></span>`, "searchg");
+  $("search-slot").replaceWith(searchEl);
+  const input = searchEl.querySelector("input")!;
+  if (document.activeElement !== input) input.value = p.filter;
+  scrollCrumbs();
 }
 
 function renderSidebar() {
   const current = pane().history.current;
   const groups: [string, Place[]][] = [
-    ["Places", places.filter((p) => p.kind !== "drive")],
-    ["Drives", places.filter((p) => p.kind === "drive")],
+    ["Favorites", places.filter((p) => p.kind === "folder")],
+    ["Locations", places.filter((p) => p.kind !== "folder")],
   ];
   $("sidebar").innerHTML = groups
     .filter(([, list]) => list.length)
-    .map(
-      ([title, list]) =>
-        `<h3>${title}</h3>` +
-        list
-          .map(
-            (pl) =>
-              `<div class="place${pl.path === current ? " active" : ""}" data-place="${esc(pl.path)}" title="${esc(pl.path)}">${PLACE_ICONS[pl.kind]}<span>${esc(pl.name)}</span></div>`,
-          )
-          .join(""),
-    )
+    .map(([title, list]) => {
+      const closed = settings.collapsed.includes(title);
+      return (
+        `<button class="shead" data-section="${title}" aria-expanded="${!closed}">${title}<span class="chev${closed ? " closed" : ""}">${ui("chevron", "chevi")}</span></button>` +
+        (closed
+          ? ""
+          : list
+              .map(
+                (pl) =>
+                  `<div class="place${pl.path === current ? " active" : ""}" data-place="${esc(pl.path)}" title="${esc(pl.path)}">${placeIcon(pl.name, pl.kind)}<span>${esc(pl.name)}</span></div>`,
+              )
+              .join(""))
+      );
+    })
     .join("");
 }
 
@@ -428,26 +454,38 @@ function renderChrome() {
   renderSidebar();
 }
 
+function buildStatusShell() {
+  $("status").innerHTML = `<span id="status-text"></span><label id="zoom-box" hidden>${ui("picture", "zi")}<input type="range" id="zoom" min="48" max="192" step="4" aria-label="Icon size"></label>`;
+  const z = $<HTMLInputElement>("zoom");
+  z.addEventListener("input", () => setZoom(+z.value));
+}
+
+function setZoom(v: number) {
+  settings.zoom = Math.max(48, Math.min(192, Math.round(v)));
+  $("panes").style.setProperty("--zoom", `${settings.zoom}px`);
+  $<HTMLInputElement>("zoom").value = String(settings.zoom);
+  saveSession();
+}
+
 function crumbsHtml(path: string): string {
   return breadcrumbs(path)
     .map((c, i, all) => `<button class="crumb${i === all.length - 1 ? " last" : ""}" data-crumb="${esc(c.path)}">${esc(c.label)}</button>`)
-    .join('<span class="sep">›</span>');
+    .join('<span class="sep"></span>');
 }
 
 function rowsHtml(p: Pane): string {
   const items = visible(p);
   if (p.error) return `<div class="empty">${esc(p.error)}</div>`;
-  if (items.length === 0) return `<div class="empty">${p.filter ? "No matches" : "This folder is empty"}</div>`;
+  if (items.length === 0) return `<div class="empty">${p.filter ? "No matches" : "This Folder is Empty"}</div>`;
   const cut = new Set(clip?.cut ? clip.paths : []);
   return items
     .map((e) => {
       const cls = `item${p.selected.has(e.path) ? " selected" : ""}${p.cursor === e.path ? " cursor" : ""}${cut.has(e.path) ? " cut" : ""}${e.hidden ? " hidden-file" : ""}`;
       const attrs = `class="${cls}" data-path="${esc(e.path)}" data-kind="${e.kind}" draggable="true"`;
-      if (settings.view === "icons")
-        return `<div ${attrs}>${iconFor(e)}<div class="name"><span>${esc(e.name)}</span></div></div>`;
-      return `<div ${attrs}><div class="name">${iconFor(e)}<span>${esc(e.name)}</span></div><div class="col mod">${formatDate(e.modified)}</div><div class="col size">${
-        e.kind === "folder" ? "—" : formatSize(e.size)
-      }</div><div class="col kind">${kindLabel(e)}</div></div>`;
+      if (settings.view === "icons") return `<div ${attrs}>${iconFor(e)}<div class="name"><span>${esc(e.name)}</span></div></div>`;
+      return `<div ${attrs}><div class="name">${listIcon(e)}<span>${esc(e.name)}</span></div><div class="col size">${
+        e.kind === "folder" ? "––" : formatSize(e.size)
+      }</div><div class="col mod">${formatDate(e.modified)}</div><div class="col kind">${kindLabel(e)}</div></div>`;
     })
     .join("");
 }
@@ -455,52 +493,45 @@ function rowsHtml(p: Pane): string {
 function headerHtml(): string {
   if (settings.view !== "list") return "";
   const h = (key: SortKey, label: string, cls: string) =>
-    `<div class="${cls}${settings.sortKey === key ? " sorted" : ""}" data-sort="${key}">${label}${
-      settings.sortKey === key ? (settings.ascending ? " ↑" : " ↓") : ""
+    `<div class="${cls}${settings.sortKey === key ? " sorted" : ""}" data-sort="${key}"><span>${label}</span>${
+      settings.sortKey === key ? `<i class="dir">${ui(settings.ascending ? "up" : "chevron", "chevi")}</i>` : ""
     }</div>`;
-  return `<div class="colhead">${h("name", "Name", "name")}${h("modified", "Date modified", "col mod")}${h("size", "Size", "col size")}${h("kind", "Kind", "col kind")}</div>`;
+  return `<div class="colhead">${h("name", "Name", "name")}${h("size", "Size", "col size")}${h("modified", "Date Modified", "col mod")}${h("kind", "Kind", "col kind")}</div>`;
 }
 
 /** Long paths scroll so the current folder (the end) stays visible. */
 function scrollCrumbs() {
-  document.querySelectorAll<HTMLElement>(".crumbs").forEach((c) => (c.scrollLeft = c.scrollWidth));
+  const c = document.getElementById("crumbs");
+  if (c) c.scrollLeft = c.scrollWidth;
 }
 
 function renderPanes() {
   const t = tab();
   const host = $("panes");
   host.className = t.panes.length > 1 ? "split" : "";
+  host.style.setProperty("--zoom", `${settings.zoom}px`);
   host.innerHTML = t.panes
-    .map((p, i) => {
-      const h = p.history;
-      return `<section class="pane${i === t.active ? " active" : ""}" data-pane="${i}">
-        <header class="pane-head">
-          <button data-nav="back" title="Back (Alt+←)" ${h.canBack() ? "" : "disabled"}>←</button>
-          <button data-nav="fwd" title="Forward (Alt+→)" ${h.canForward() ? "" : "disabled"}>→</button>
-          <button data-nav="up" title="Up (Alt+↑)">↑</button>
-          <nav class="crumbs" title="Click to type a path (Ctrl+L)">${crumbsHtml(h.current)}</nav>
-          <input class="filter" placeholder="Filter" value="${esc(p.filter)}" aria-label="Filter this folder">
-        </header>
+    .map(
+      (p, i) => `<section class="pane${i === t.active ? " active" : ""}" data-pane="${i}">
+        ${
+          t.panes.length > 1
+            ? `<header class="pane-head"><span class="dot"></span><span class="pname">${esc(baseName(p.history.current))}</span><span class="side">${i === 0 ? "Left Pane" : "Right Pane"}</span><button data-close-pane="${i}" aria-label="Close pane">${ui("close", "xi")}</button></header>`
+            : ""
+        }
         <div class="listing ${settings.view}" tabindex="0">${headerHtml()}<div class="rows">${rowsHtml(p)}</div></div>
-      </section>`;
-    })
+      </section>`,
+    )
     .join("");
-  scrollCrumbs();
 }
 
 function renderPane(i: number) {
-  // Rebuilds one pane's rows in place so a focused filter box keeps focus.
+  // Rebuilds one pane's rows in place; the toolbar keeps focus in the search box.
   const p = tab().panes[i];
   const el = document.querySelector<HTMLElement>(`.pane[data-pane="${i}"]`);
   if (!el) return renderPanes();
   el.querySelector(".rows")!.innerHTML = rowsHtml(p);
-  el.querySelector(".crumbs")!.innerHTML = crumbsHtml(p.history.current);
-  scrollCrumbs();
-  const f = el.querySelector<HTMLInputElement>(".filter")!;
-  if (f.value !== p.filter) f.value = p.filter;
-  const h = p.history;
-  el.querySelector<HTMLButtonElement>('[data-nav="back"]')!.disabled = !h.canBack();
-  el.querySelector<HTMLButtonElement>('[data-nav="fwd"]')!.disabled = !h.canForward();
+  const name = el.querySelector(".pname");
+  if (name) name.textContent = baseName(p.history.current);
   renderStatus();
 }
 
@@ -517,17 +548,22 @@ function renderStatus() {
   const p = pane();
   const items = visible(p);
   const sel = selectedEntries(p);
-  let text = `${items.length} item${items.length === 1 ? "" : "s"}`;
-  if (sel.length) {
-    const bytes = sel.filter((e) => e.kind === "file").reduce((n, e) => n + e.size, 0);
-    text = `${sel.length} of ${items.length} selected`;
-    if (sel.length === 1 && sel[0].kind === "folder") {
-      const s = folderSizes.get(sel[0].path);
-      text += s ? ` · ${formatSize(s.bytes)}, ${s.items} item${s.items === 1 ? "" : "s"} inside` : " · calculating size…";
-      if (!s) void measure(sel[0].path);
-    } else if (bytes) text += ` · ${formatSize(bytes)}`;
+  let bytes: number | null = sel.filter((e) => e.kind === "file").reduce((n, e) => n + e.size, 0);
+  if (sel.length === 1 && sel[0].kind === "folder") {
+    const s = folderSizes.get(sel[0].path);
+    bytes = s ? s.bytes : null;
+    if (!s) void measure(sel[0].path);
   }
-  $("status").textContent = text;
+  const path = p.history.current;
+  if (!freeSpace.has(path)) {
+    freeSpace.set(path, null);
+    void api.diskFree(path).then((n) => {
+      freeSpace.set(path, n);
+      if (pane().history.current === path) renderStatus();
+    });
+  }
+  $("status-text").textContent = statusLine(items.length, sel.length, bytes, freeSpace.get(path) ?? null);
+  $("zoom-box").hidden = settings.view !== "icons";
 }
 
 async function measure(path: string) {
@@ -596,13 +632,13 @@ function onKey(ev: KeyboardEvent) {
   closeMenu();
   const typing = target.tagName === "INPUT" || target.tagName === "SELECT";
   if (typing) {
-    if (ev.key === "Escape" && target.classList.contains("filter")) {
-      const p = pane();
-      p.filter = "";
+    if (ev.key === "Escape" && target.classList.contains("search-input")) {
+      (target as HTMLInputElement).value = "";
+      pane().filter = "";
       renderPane(tab().active);
       focusListing();
     }
-    if (ev.key === "Enter" && target.classList.contains("filter")) focusListing();
+    if (ev.key === "Enter" && target.classList.contains("search-input")) focusListing();
     return;
   }
   const p = pane();
@@ -622,8 +658,12 @@ function onKey(ev: KeyboardEvent) {
       z: () => void doUndo(),
       t: () => addTab(p.history.current),
       w: () => closeTab(activeTab),
-      l: () => editPath(tab().active),
-      f: () => document.querySelector<HTMLInputElement>(`.pane[data-pane="${tab().active}"] .filter`)?.focus(),
+      l: () => editPath(),
+      f: () => searchEl.querySelector("input")!.focus(),
+      "=": () => setZoom(settings.zoom + 12),
+      "+": () => setZoom(settings.zoom + 12),
+      "-": () => setZoom(settings.zoom - 12),
+      "0": () => setZoom(72),
       h: () => toggleHidden(),
       "\\": () => toggleSplit(),
       Tab: () => switchTab((activeTab + 1) % tabs.length),
@@ -701,6 +741,7 @@ function setActivePane(i: number) {
   if (tab().active === i) return;
   tab().active = i;
   document.querySelectorAll(".pane").forEach((el, n) => el.classList.toggle("active", n === i));
+  renderToolbar();
   renderSidebar();
   renderStatus();
   renderTabs();
@@ -741,7 +782,7 @@ function toggleSplit() {
     t.panes.push(copy);
     t.active = 1;
   }
-  renderToolbar();
+  renderChrome();
   renderPanes();
   renderStatus();
   syncWatch();
@@ -761,25 +802,36 @@ async function applySettings() {
   saveSession();
 }
 
-function editPath(i: number) {
-  const nav = document.querySelector<HTMLElement>(`.pane[data-pane="${i}"] .crumbs`);
-  const p = tab().panes[i];
-  if (!nav) return;
+function editPath() {
+  const nav = document.getElementById("crumbs");
+  const p = pane();
+  if (!nav || nav.querySelector("input")) return;
   const input = document.createElement("input");
   input.className = "pathinput";
   input.value = p.history.current;
   nav.replaceChildren(input);
   input.focus();
   input.select();
+  let closed = false;
+  const restore = () => {
+    if (closed) return;
+    closed = true;
+    input.remove();
+    renderToolbar();
+  };
   input.addEventListener("keydown", async (ev) => {
     ev.stopPropagation();
     if (ev.key === "Enter") {
       const ok = await go(p, input.value.trim());
       if (!ok) input.focus();
+      else {
+        restore();
+        focusListing();
+      }
     }
-    if (ev.key === "Escape") renderPane(i);
+    if (ev.key === "Escape") restore();
   });
-  input.addEventListener("blur", () => renderPane(i));
+  input.addEventListener("blur", restore);
 }
 
 // ---------- context menu ----------
@@ -887,16 +939,43 @@ function wire() {
     if (tabEl) ev.button === 1 ? closeTab(+tabEl.dataset.tab!) : switchTab(+tabEl.dataset.tab!);
   });
 
+  $("tabbar").addEventListener("dblclick", (ev) => {
+    if (!(ev.target as HTMLElement).closest("[data-tab], button")) addTab(pane().history.current);
+  });
+  $("tabbar").addEventListener("wheel", (ev) => {
+    if (tabs.length < 2) return;
+    ev.preventDefault();
+    const step = (ev.deltaY || ev.deltaX) > 0 ? 1 : -1;
+    switchTab((activeTab + step + tabs.length) % tabs.length);
+  }, { passive: false });
+
   $("sidebar").addEventListener("mousedown", (ev) => {
-    const el = (ev.target as HTMLElement).closest<HTMLElement>("[data-place]");
+    const t = ev.target as HTMLElement;
+    const head = t.closest<HTMLElement>("[data-section]");
+    if (head) {
+      const name = head.dataset.section!;
+      const i = settings.collapsed.indexOf(name);
+      if (i >= 0) settings.collapsed.splice(i, 1);
+      else settings.collapsed.push(name);
+      renderSidebar();
+      return saveSession();
+    }
+    const el = t.closest<HTMLElement>("[data-place]");
     if (!el) return;
     if (ev.button === 1) return addTab(el.dataset.place!);
     void go(pane(), el.dataset.place!);
   });
 
   $("toolbar").addEventListener("click", (ev) => {
-    const id = (ev.target as HTMLElement).closest("button")?.id;
+    const el = ev.target as HTMLElement;
+    const crumb = el.closest<HTMLElement>("[data-crumb]");
+    if (crumb) return void go(pane(), crumb.dataset.crumb!);
+    if (el.closest("#crumbs") && !el.closest("input")) return editPath();
+    const id = el.closest("button")?.id;
     const actions: Record<string, () => void> = {
+      "nav-back": () => void moveHistory(pane(), "back"),
+      "nav-fwd": () => void moveHistory(pane(), "fwd"),
+      "nav-up": () => void up(pane()),
       "tb-undo": () => void doUndo(),
       "tb-folder": () => void createFolder(),
       "tb-order": () => { settings.ascending = !settings.ascending; void applySettings(); },
@@ -906,6 +985,15 @@ function wire() {
       "tb-split": toggleSplit,
     };
     if (id && actions[id]) actions[id]();
+  });
+  $("toolbar").addEventListener("input", (ev) => {
+    const el = ev.target as HTMLInputElement;
+    if (!el.classList.contains("search-input")) return;
+    const p = pane();
+    p.filter = el.value;
+    p.selected.clear();
+    p.cursor = p.anchor = null;
+    renderPane(tab().active);
   });
   $("toolbar").addEventListener("change", (ev) => {
     const t = ev.target as HTMLSelectElement;
@@ -929,7 +1017,7 @@ function wire() {
     if (!pn) return;
     setActivePane(+pn.dataset.pane!);
     const p = pane();
-    if (el.closest(".rename, .filter, .pathinput")) return;
+    if (el.closest(".rename, .pathinput")) return;
     const hit = entryOf(el);
     if (hit?.entry) {
       if (ev.button === 2 && p.selected.has(hit.entry.path)) return;
@@ -948,12 +1036,17 @@ function wire() {
     const pn = paneOf(el);
     if (!pn) return;
     const p = tab().panes[+pn.dataset.pane!];
-    const nav = el.closest<HTMLElement>("[data-nav]")?.dataset.nav;
-    if (nav === "back" || nav === "fwd") return void moveHistory(p, nav);
-    if (nav === "up") return void up(p);
-    const crumb = el.closest<HTMLElement>("[data-crumb]");
-    if (crumb) return void go(p, crumb.dataset.crumb!);
-    if (el.closest(".crumbs") && !el.closest("input")) return editPath(+pn.dataset.pane!);
+    const closePane = el.closest<HTMLElement>("[data-close-pane]");
+    if (closePane) {
+      const keep = 1 - +closePane.dataset.closePane!;
+      tab().panes = [tab().panes[keep]];
+      tab().active = 0;
+      renderChrome();
+      renderPanes();
+      renderStatus();
+      syncWatch();
+      return saveSession();
+    }
     const sort = el.closest<HTMLElement>("[data-sort]")?.dataset.sort as SortKey | undefined;
     if (sort) {
       if (settings.sortKey === sort) settings.ascending = !settings.ascending;
@@ -968,22 +1061,19 @@ function wire() {
   });
 
   panes.addEventListener("dblclick", (ev) => {
-    const hit = entryOf(ev.target as HTMLElement);
-    if (hit?.entry && !(ev.target as HTMLElement).closest(".rename")) openEntry(pane(), hit.entry);
+    const el = ev.target as HTMLElement;
+    const hit = entryOf(el);
+    if (hit?.entry && !el.closest(".rename")) return openEntry(pane(), hit.entry);
+    // Mouse zone: double-click on empty folder space goes up a level.
+    if (!hit && el.closest(".listing") && !el.closest(".colhead")) void up(pane());
   });
 
-  panes.addEventListener("input", (ev) => {
-    const el = ev.target as HTMLInputElement;
-    if (!el.classList.contains("filter")) return;
-    const pn = paneOf(el)!;
-    const p = tab().panes[+pn.dataset.pane!];
-    p.filter = el.value;
-    p.selected.clear();
-    p.cursor = p.anchor = null;
-    const rows = pn.querySelector(".rows")!;
-    rows.innerHTML = rowsHtml(p);
-    renderStatus();
-  });
+  panes.addEventListener("wheel", (ev) => {
+    if (mod(ev) && settings.view === "icons") {
+      ev.preventDefault();
+      setZoom(settings.zoom - Math.sign(ev.deltaY) * 8);
+    }
+  }, { passive: false });
 
   panes.addEventListener("contextmenu", (ev) => {
     const el = ev.target as HTMLElement;
@@ -1050,6 +1140,8 @@ export async function start() {
   tabs = saved.length ? saved.map((t) => newTab(t.paths.slice(0, 2), t.active)) : [newTab([home])];
   activeTab = Math.min(restored.activeTab ?? 0, tabs.length - 1);
   await Promise.all(tabs.flatMap((t) => t.panes).map(reload));
+  buildStatusShell();
+  $<HTMLInputElement>("zoom").value = String(settings.zoom);
   renderChrome();
   renderPanes();
   renderStatus();

@@ -12,7 +12,7 @@ const fs = new Map<string, Node>();
 const dir = (p: string) => fs.set(p, { dir: true, size: 0, modified: now });
 const file = (p: string, size: number, age = 0) => fs.set(p, { dir: false, size, modified: now - age * 3600_000 });
 
-["/", "/home", "/home/me", "/home/me/Documents", "/home/me/Downloads", "/home/me/Pictures",
+["/", "/home", "/home/me", "/home/me/Desktop", "/home/me/Documents", "/home/me/Downloads", "/home/me/Pictures",
   "/home/me/Documents/Projects", "/home/me/Documents/Taxes 2025"].forEach(dir);
 file("/home/me/Documents/report.pdf", 482_113, 3);
 file("/home/me/Documents/notes.txt", 1_204, 30);
@@ -65,6 +65,7 @@ export async function mock<T>(cmd: string, a: Record<string, any>): Promise<T> {
     case "list_places":
       return out([
         { name: "Home", path: "/home/me", kind: "home" },
+        { name: "Desktop", path: "/home/me/Desktop", kind: "folder" },
         { name: "Documents", path: "/home/me/Documents", kind: "folder" },
         { name: "Downloads", path: "/home/me/Downloads", kind: "folder" },
         { name: "Pictures", path: "/home/me/Pictures", kind: "folder" },
@@ -177,6 +178,8 @@ export async function mock<T>(cmd: string, a: Record<string, any>): Promise<T> {
       const all = under(a.path).filter((k) => k !== a.path);
       return out({ bytes: all.reduce((s, k) => s + fs.get(k)!.size, 0), items: all.length });
     }
+    case "disk_free":
+      return out(98_710_000_000);
     default:
       return out(undefined);
   }

@@ -41,6 +41,7 @@ export const api = {
   duplicate: (targets: string[]) => call<OpResult>("duplicate", { targets }),
   undo: () => call<{ label: string; can_undo: boolean }>("undo"),
   folderSize: (path: string) => call<{ bytes: number; items: number }>("folder_size", { path }),
+  diskFree: (path: string) => call<number | null>("disk_free", { path }),
   openPath: (path: string) => call<void>("open_path", { path }),
   watchDirs: (dirs: string[]) => call<void>("watch_dirs", { dirs }),
 };

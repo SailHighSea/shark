@@ -265,6 +265,11 @@ pub fn duplicate(paths: &[PathBuf]) -> Outcome {
     out
 }
 
+/// Free bytes on the volume holding `path`, or None when it can't be read.
+pub fn disk_free(path: &Path) -> Option<u64> {
+    fs4::available_space(path).ok()
+}
+
 /// Total bytes and item count under `path`. Links are counted but not followed.
 pub fn folder_size(path: &Path) -> (u64, u64) {
     let (mut bytes, mut items) = (0, 0);
@@ -405,6 +410,13 @@ mod tests {
         assert_eq!(fs::read_to_string(d.path().join("a copy.txt")).unwrap(), "z");
         assert!(d.path().join("a copy 2.txt").exists());
         assert_eq!(o.paths.len(), 2);
+    }
+
+    #[test]
+    fn free_space_is_reported() {
+        let d = tempdir().unwrap();
+        assert!(disk_free(d.path()).is_some());
+        assert!(disk_free(&d.path().join("nope")).is_none());
     }
 
     #[test]

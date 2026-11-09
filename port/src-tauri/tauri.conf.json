@@ -13,10 +13,10 @@
     "windows": [
       {
         "title": "Shark",
-        "width": 1100,
+        "width": 1080,
         "height": 720,
-        "minWidth": 640,
-        "minHeight": 420,
+        "minWidth": 800,
+        "minHeight": 520,
         "dragDropEnabled": false
       }
     ],

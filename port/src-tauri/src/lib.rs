@@ -138,6 +138,11 @@ async fn folder_size(path: String) -> FolderSize {
 }
 
 #[tauri::command]
+fn disk_free(path: String) -> Option<u64> {
+    shark_core::disk_free(Path::new(&path))
+}
+
+#[tauri::command]
 fn open_path(path: String) -> CmdResult<()> {
     use std::process::Command;
     #[cfg(windows)]
@@ -196,6 +201,7 @@ pub fn run() {
             duplicate,
             undo,
             folder_size,
+            disk_free,
             open_path,
             watch_dirs,
         ])

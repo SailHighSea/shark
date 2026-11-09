@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  breadcrumbs, formatSize, History, joinPath, navigate, rangeBetween, stemLength, typeSelect, type Entry,
+  breadcrumbs, formatSize, History, joinPath, kindLabel, statusLine, navigate, rangeBetween, stemLength, typeSelect, type Entry,
 } from "./logic";
 
 const e = (name: string): Entry => ({
@@ -23,9 +23,21 @@ describe("paths", () => {
 
 describe("formatSize", () => {
   it("uses decimal units", () => {
-    expect(formatSize(999)).toBe("999 B");
-    expect(formatSize(1500)).toBe("1.5 KB");
-    expect(formatSize(250_000_000)).toBe("250 MB");
+    expect(formatSize(0)).toBe("Zero KB");
+    expect(formatSize(174)).toBe("174 bytes");
+    expect(formatSize(15_300)).toBe("15 KB");
+    expect(formatSize(1_240_000)).toBe("1.2 MB");
+    expect(formatSize(98_710_000_000)).toBe("98.71 GB");
+  });
+  it("describes a status line like the macOS app", () => {
+    expect(statusLine(10, 1, 0, 98_710_000_000)).toBe("10 items • 1 selected (Zero KB) • 98.71 GB available");
+    expect(statusLine(1, 0, 0, null)).toBe("1 item");
+    expect(statusLine(3, 1, null, null)).toBe("3 items • 1 selected (calculating…)");
+  });
+  it("names kinds", () => {
+    const f = { name: "a.md", path: "/a.md", kind: "file", is_symlink: false, size: 1, modified: null, hidden: false, ext: "md" } as Entry;
+    expect(kindLabel(f)).toBe("Markdown Document");
+    expect(kindLabel({ ...f, ext: "zzz" })).toBe("ZZZ file");
   });
 });
 

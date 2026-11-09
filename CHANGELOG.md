@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Dev pre-release workflow: pushes to `dev` publish `v0.0.1-dev1`, `-dev2`, ... to GitHub Releases, with an unsigned macOS DMG and Windows and Linux jobs that switch on once the port exists. See `docs/RELEASING.md`.
 - `docs/PORTING.md`: plan for Windows and Linux ports (Tauri 2 with a Rust core), phases and macOS feature mapping.
 - Windows and Linux port, phases 1 to 3 (`port/`): Tauri 2 app with list and icon views, tabs, split panes, path bar, sidebar, range selection, type-to-select, copy / move / trash / rename / duplicate with undo, a collision dialog, drag and drop, and live folder updates. Tested by a Rust core crate (`port/core`), Vitest, and a Port CI workflow.
+- Windows and Linux port look: toolbar, tab strip, sidebar, striped list, split-pane headers, status bar with free space, and icon zoom now follow `DESIGN.md` and the macOS screenshots (see `docs/PORTING.md` for what differs).
 
 ## [1.0.0-alpha.4] - 2026-11-05
 

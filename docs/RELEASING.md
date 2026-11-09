@@ -78,3 +78,14 @@ Repository secrets:
 Encode with `base64 -i file | pbcopy`. After the upload processes in App Store Connect, pick the build on the app version, finish screenshots, privacy and review notes, and submit it yourself.
 
 Before the first submission, verify the sandboxed build by running it: folder access and bookmarks across launches, the embedded terminal, and compression behave differently under App Sandbox. Run `bash scripts/package-appstore.sh 1.0.0` locally to produce the same package.
+
+## Dev pre-releases
+
+Work happens on the `dev` branch. Every push to `dev` that touches more than docs or the website runs [`dev-release.yml`](../.github/workflows/dev-release.yml), which tests, builds, and publishes a GitHub **pre-release** named `v<base>-dev<N>`: `v0.0.1-dev1`, `v0.0.1-dev2`, and so on. `N` is the highest existing `v<base>-dev*` tag plus one, so numbers never repeat.
+
+- The base version is in `.github/dev-base-version` (`0.0.1`). Change it to start a new series (`0.0.2-dev1`).
+- macOS: ad hoc signed, not notarized `Shark-<version>.dmg` plus checksum, built with `scripts/package.sh`. No secrets are needed.
+- Windows and Linux: built from `port/` once the port exists; until then those jobs skip. See [PORTING.md](PORTING.md).
+- Dev tags are created with the workflow token, and `release.yml` ignores `v*-dev*` tags, so no Developer ID signing, notarization, App Store upload, or Homebrew update happens for dev builds.
+- Run it by hand from **Actions › Dev Release › Run workflow** on `dev`, or `gh workflow run dev-release.yml --ref dev`. Add `[skip ci]` to a commit message to skip a push.
+- Merge `dev` into `main` and tag as described above for real releases.

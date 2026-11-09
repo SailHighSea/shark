@@ -1,0 +1,179 @@
+# Dev pre-releases: every push to `dev` builds all platforms and publishes v<base>-dev<N> (v0.0.1-dev1, -dev2, ...).
+# macOS builds today. Windows and Linux build from port/ once it exists (docs/PORTING.md); until then they skip.
+name: Dev Release
+
+on:
+  push:
+    branches: [dev]
+    paths-ignore:
+      - "website/**"
+      - "docs/**"
+      - "**/*.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev-release
+  cancel-in-progress: false
+
+env:
+  DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compute next dev version
+        id: next
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          base=$(tr -d '[:space:]' < .github/dev-base-version)
+          [[ "$base" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Bad .github/dev-base-version: $base"; exit 1; }
+          last=$(gh api --paginate "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/v$base-dev" --jq '.[].ref' \
+            | sed -n "s|^refs/tags/v$base-dev\([0-9][0-9]*\)$|\1|p" | sort -n | tail -1)
+          version="$base-dev$(( ${last:-0} + 1 ))"
+          echo "Next dev version: $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  macos:
+    needs: version
+    runs-on: xcode-27
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test
+        run: swift test
+      - name: Build ad hoc signed DMG
+        run: bash scripts/package.sh "${{ needs.version.outputs.version }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: |
+            dist/Shark-*.dmg
+            dist/Shark-*.dmg.sha256
+          if-no-files-found: error
+
+  linux:
+    needs: version
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for the Linux port
+        id: port
+        run: |
+          if [[ -f port/src-tauri/tauri.conf.json ]]; then echo "present=true" >> "$GITHUB_OUTPUT"
+          else echo "::notice::No port/ yet (see docs/PORTING.md); skipping Linux."; fi
+      - if: steps.port.outputs.present == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+      - if: steps.port.outputs.present == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: port/package-lock.json
+      - if: steps.port.outputs.present == 'true'
+        uses: dtolnay/rust-toolchain@stable
+      - if: steps.port.outputs.present == 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: port/src-tauri
+      - name: Test and build
+        if: steps.port.outputs.present == 'true'
+        working-directory: port
+        run: |
+          npm ci
+          cargo test --manifest-path src-tauri/Cargo.toml
+          npx tauri build --bundles deb,appimage --config '{"version":"${{ needs.version.outputs.version }}"}'
+      - name: Collect artifacts
+        if: steps.port.outputs.present == 'true'
+        run: |
+          mkdir -p out
+          v="${{ needs.version.outputs.version }}"
+          cp port/src-tauri/target/release/bundle/deb/*.deb "out/Shark-$v-linux-amd64.deb"
+          cp port/src-tauri/target/release/bundle/appimage/*.AppImage "out/Shark-$v-linux-x86_64.AppImage"
+          (cd out && sha256sum * > "Shark-$v-linux.sha256")
+      - if: steps.port.outputs.present == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: out/*
+          if-no-files-found: error
+
+  windows:
+    needs: version
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for the Windows port
+        id: port
+        run: |
+          if [[ -f port/src-tauri/tauri.conf.json ]]; then echo "present=true" >> "$GITHUB_OUTPUT"
+          else echo "::notice::No port/ yet (see docs/PORTING.md); skipping Windows."; fi
+      - if: steps.port.outputs.present == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: port/package-lock.json
+      - if: steps.port.outputs.present == 'true'
+        uses: dtolnay/rust-toolchain@stable
+      - if: steps.port.outputs.present == 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: port/src-tauri
+      - name: Test and build
+        if: steps.port.outputs.present == 'true'
+        working-directory: port
+        run: |
+          npm ci
+          cargo test --manifest-path src-tauri/Cargo.toml
+          npx tauri build --bundles nsis --config '{"version":"${{ needs.version.outputs.version }}"}'
+      - name: Collect artifacts
+        if: steps.port.outputs.present == 'true'
+        run: |
+          mkdir -p out
+          v="${{ needs.version.outputs.version }}"
+          cp port/src-tauri/target/release/bundle/nsis/*-setup.exe "out/Shark-$v-windows-x64-setup.exe"
+          (cd out && sha256sum * > "Shark-$v-windows.sha256")
+      - if: steps.port.outputs.present == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: out/*
+          if-no-files-found: error
+
+  publish:
+    needs: [version, macos, linux, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Publish pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          ls -l artifacts
+          gh release create "v$VERSION" artifacts/* \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "Shark $VERSION (dev)" --prerelease --latest=false --generate-notes \
+            --notes "Development build from \`dev\` at $GITHUB_SHA. Unsigned and unnotarized; not for general use."

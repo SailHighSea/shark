@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### User Changelog
 
+### Added
+- Dev pre-release workflow: pushes to `dev` publish `v0.0.1-dev1`, `-dev2`, ... to GitHub Releases, with an unsigned macOS DMG and Windows and Linux jobs that switch on once the port exists. See `docs/RELEASING.md`.
+- `docs/PORTING.md`: plan for Windows and Linux ports (Tauri 2 with a Rust core), phases and macOS feature mapping. Nothing is implemented yet.
+
 ## [1.0.0-alpha.4] - 2026-11-05
 
 ### User Changelog
